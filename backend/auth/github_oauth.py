@@ -44,9 +44,18 @@ async def github_callback(code: str):
         user_response = await client.get(user_url, headers=user_headers)
         user_data = user_response.json()
 
+        repos_url = "https://api.github.com/user/repos?sort=updated&per_page=5"
+        repos_response = await client.get(repos_url, headers=user_headers)
+        repos_data = repos_response.json()
+
+        print(f"\n--- RECENT REPOS FOR {user_data.get('login').upper()} ---")
+        for repo in repos_data:
+            print(f"- {repo.get('name')} (Private: {repo.get('private')})")
+        print("---------------------------------------\n")
+
         return {
             "message": "Authentication successful!",
             "github_username": user_data.get("login"),
             "name": user_data.get("name"),
-            "access_token": access_token 
+            "status": "Check your VS Code terminal to see your fetched repos!"
         }
