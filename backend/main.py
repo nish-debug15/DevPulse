@@ -2,12 +2,17 @@ from fastapi import FastAPI
 import os
 from dotenv import load_dotenv
 
+# Import DB components
+from db.database import engine, Base
+import db.models 
+
 from auth.github_oauth import router as auth_router
 
 load_dotenv()
 
-app = FastAPI(title="DevPulse API")
+Base.metadata.create_all(bind=engine)
 
+app = FastAPI(title="DevPulse API")
 app.include_router(auth_router)
 
 @app.get("/")

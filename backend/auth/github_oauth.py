@@ -1,7 +1,11 @@
 import os
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import RedirectResponse
+from sqlalchemy.orm import Session
+
+from db.database import get_db
+from db.models import User
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -10,14 +14,11 @@ GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 
 @router.get("/login")
 def github_login():
-    """Redirects the user to GitHub's OAuth consent screen."""
     github_auth_url = f"https://github.com/login/oauth/authorize?client_id={GITHUB_CLIENT_ID}&scope=repo,read:org"
     return RedirectResponse(url=github_auth_url)
 
 @router.get("/callback")
-async def github_callback(code: str):
-    """GitHub redirects here with a temporary code. We exchange it for an access token."""
-    
+async def github_callback(code: str, db: Session = Depends(get_db)):
     token_url = "https://github.com/login/oauth/access_token"
     headers = {"Accept": "application/json"}
     payload = {
@@ -43,19 +44,33 @@ async def github_callback(code: str):
         
         user_response = await client.get(user_url, headers=user_headers)
         user_data = user_response.json()
+        
+        github_id = user_data.get("id")
+        username = user_data.get("login")
+        name = user_data.get("name")
 
-        repos_url = "https://api.github.com/user/repos?sort=updated&per_page=5"
-        repos_response = await client.get(repos_url, headers=user_headers)
-        repos_data = repos_response.json()
+        db_user = db.query(User).filter(User.github_id == github_id).first()
+        
+        if db_user:
+            db_user.access_token = access_token
+            db.commit()
+            action = "Updated existing user"
+        else:
+            db_user = User(
+                github_id=github_id,
+                username=username,
+                name=name,
+                access_token=access_token
+            )
+            db.add(db_user)
+            db.commit()
+            db.refresh(db_user)
+            action = "Created new user"
 
-        print(f"\n--- RECENT REPOS FOR {user_data.get('login').upper()} ---")
-        for repo in repos_data:
-            print(f"- {repo.get('name')} (Private: {repo.get('private')})")
-        print("---------------------------------------\n")
 
         return {
             "message": "Authentication successful!",
-            "github_username": user_data.get("login"),
-            "name": user_data.get("name"),
-            "status": "Check your VS Code terminal to see your fetched repos!"
+            "action": action,
+            "username": db_user.username,
+            "database_id": db_user.id
         }
