@@ -1,0 +1,26 @@
+# Environments and Secrets 
+.env
+.env.*
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Node / Frontend
+node_modules/
+.next/
+out/
+build/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
