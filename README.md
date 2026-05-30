@@ -26,7 +26,7 @@ DevPulse connects to your GitHub repos and automatically surfaces what's slowing
 | LLM | Groq API (Llama 3 70B) | Fast inference, generous free tier |
 | Frontend | Next.js | Dashboard UI |
 | Auth | OAuth 2.0 | GitHub + Slack |
-| Infra | AWS EC2 t2.micro + RDS free tier | Using AWS credits, ~$0 cost |
+| Infra | AWS EC2 t2.micro + RDS | Using AWS credits |
 | Notifications | Slack Incoming Webhooks | Simple, no Slack SDK needed |
 
 ---
@@ -68,12 +68,12 @@ Groq API (Llama 3 70B)
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/yourusername/devpulse.git
+git clone https://github.com/nish-debug15/DevPulse.git
 cd devpulse
 
 # Backend
 python -m venv venv
-source venv/bin/activate
+.\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
 # Frontend
@@ -102,13 +102,13 @@ SECRET_KEY=generate_a_random_string_here
 
 ```bash
 # Backend (from root)
-uvicorn app.main:app --reload --port 8000
+uvicorn backend.main:app --reload --port 8000
 
 # Frontend (from /frontend)
 npm run dev
 ```
 
-Visit `http://localhost:3000`. Connect your GitHub account. Done.
+Visit `http://localhost:3000` to see the dashboard. The backend API runs at `http://localhost:8000` — you can test the GitHub OAuth flow directly at `http://localhost:8000/auth/login`.
 
 ---
 
@@ -124,7 +124,7 @@ ssh -i your-key.pem ubuntu@your-ec2-ip
 sudo apt update && sudo apt install -y python3-pip python3-venv nginx git
 
 # Clone repo
-git clone https://github.com/yourusername/devpulse.git
+git clone https://github.com/nish-debug15/DevPulse.git
 cd devpulse
 
 # Setup venv
@@ -136,7 +136,7 @@ pip install -r requirements.txt
 nano .env  # paste your variables
 
 # Run (keep alive)
-nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+nohup uvicorn backend.main:app --host 0.0.0.0 --port 8000 &
 ```
 
 ### Point GitHub OAuth to your EC2 IP
@@ -159,7 +159,7 @@ DATABASE_URL=postgresql://user:password@your-rds-endpoint:5432/devpulse
 
 ```
 devpulse/
-├── app/
+├── backend/
 │   ├── main.py              # FastAPI app entry
 │   ├── auth/                # GitHub OAuth flow
 │   ├── github/              # GitHub API client
