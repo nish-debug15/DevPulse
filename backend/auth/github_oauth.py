@@ -11,6 +11,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000") # Add this
 
 @router.get("/login")
 def github_login():
@@ -54,7 +55,6 @@ async def github_callback(code: str, db: Session = Depends(get_db)):
         if db_user:
             db_user.access_token = access_token
             db.commit()
-            action = "Updated existing user"
         else:
             db_user = User(
                 github_id=github_id,
@@ -65,12 +65,5 @@ async def github_callback(code: str, db: Session = Depends(get_db)):
             db.add(db_user)
             db.commit()
             db.refresh(db_user)
-            action = "Created new user"
 
-
-        return {
-            "message": "Authentication successful!",
-            "action": action,
-            "username": db_user.username,
-            "database_id": db_user.id
-        }
+        return RedirectResponse(url=f"{FRONTEND_URL}/dashboard?user={db_user.username}")
