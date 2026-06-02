@@ -1,26 +1,41 @@
-# Environments and Secrets 
+# Environments and Secrets (CRITICAL)
 .env
 .env.*
 venv/
 env/
+
+# Databases (CRITICAL)
+*.db
+*.sqlite
+*.sqlite3
+devpulse.db
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.coverage
+htmlcov/
 
 # Node / Frontend
 node_modules/
 .next/
 out/
 build/
+.npm/
 
 # OS generated files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
 # IDEs
 .vscode/
 .idea/
 *.swp
+*.swo
