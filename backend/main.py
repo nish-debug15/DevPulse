@@ -1,7 +1,10 @@
-from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException
 import os
-import logging
 from dotenv import load_dotenv
+
+load_dotenv()
+
+from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException
+import logging
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy.orm import Session
@@ -10,10 +13,9 @@ from db.database import get_db, engine, Base
 from db.models import User
 from services.github_fetcher import sync_user_github_data
 from auth.github_oauth import router as auth_router
+
 from services.engine import BottleneckEngine
 from services.ai_synthesis import StandupGenerator
-
-load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

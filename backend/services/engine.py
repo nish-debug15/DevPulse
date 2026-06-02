@@ -10,6 +10,15 @@ class BottleneckEngine:
         self.user = user
         self.now = datetime.now(timezone.utc)
 
+    def _ensure_aware(self, dt: datetime) -> datetime:
+        """
+        SQLite strips timezone info on read. 
+        This safely re-attaches UTC so Python math operations don't crash.
+        """
+        if dt and dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+
     def get_stale_prs(self) -> list[Dict[str, Any]]:
         """Finds PRs open for more than 48 hours."""
         threshold = self.now - timedelta(hours=48)
@@ -22,7 +31,8 @@ class BottleneckEngine:
         
         results = []
         for pr in stale_prs:
-            hours_open = round((self.now - pr.created_at).total_seconds() / 3600, 1)
+            created_at = self._ensure_aware(pr.created_at)
+            hours_open = round((self.now - created_at).total_seconds() / 3600, 1)
             results.append({
                 "repo": pr.repo_name,
                 "number": pr.number,
@@ -67,11 +77,13 @@ class BottleneckEngine:
         if not merged_prs:
             return {"average_hours": 0, "pr_count": 0}
 
-        total_seconds = sum(
-            (pr.merged_at - pr.created_at).total_seconds() 
-            for pr in merged_prs 
-            if pr.merged_at and pr.created_at
-        )
+        total_seconds = 0
+        for pr in merged_prs:
+            merged_at = self._ensure_aware(pr.merged_at)
+            created_at = self._ensure_aware(pr.created_at)
+            
+            if merged_at and created_at:
+                total_seconds += (merged_at - created_at).total_seconds()
         
         avg_hours = (total_seconds / len(merged_prs)) / 3600
 

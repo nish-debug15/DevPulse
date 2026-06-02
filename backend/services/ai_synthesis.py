@@ -5,11 +5,24 @@ from groq import Groq
 
 logger = logging.getLogger(__name__)
 
-client = Groq()
-
 class StandupGenerator:
-    @staticmethod
-    def generate(metrics_payload: dict) -> str:
+    _client = None
+
+    @classmethod
+    def _get_client(cls) -> Groq:
+        """
+        Lazy instantiation implementation for the external SDK client.
+        Ensures runtime hydration of environment variables before client configuration.
+        """
+        if cls._client is None:
+            if not os.getenv("GROQ_API_KEY"):
+                logger.critical("Initialization failure: GROQ_API_KEY environment variable is missing.")
+                raise RuntimeError("GROQ_API_KEY environment variable is missing.")
+            cls._client = Groq()
+        return cls._client
+
+    @classmethod
+    def generate(cls, metrics_payload: dict) -> str:
         """
         Feeds deterministic database metrics into Llama 3 70B to generate an engineering standup.
         """
@@ -24,7 +37,10 @@ class StandupGenerator:
         )
 
         try:
-            response = client.chat.completions.create(
+            # Safely fetch the client singleton at execution time
+            groq_client = cls._get_client()
+            
+            response = groq_client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {
@@ -32,7 +48,7 @@ class StandupGenerator:
                         "content": f"Generate a standup based on this current state:\n{json.dumps(metrics_payload, indent=2)}"
                     }
                 ],
-                model="llama3-70b-8192",
+                model="llama-3.3-70b-versatile",
                 temperature=0.3, 
                 max_tokens=600
             )
