@@ -27,7 +27,7 @@ async def fetch_with_retry(client: httpx.AsyncClient, url: str) -> list:
             logger.warning(f"RATE LIMIT WARNING: Only {remaining} requests left.")
             if remaining == 0:
                 logger.error("Rate limit exhausted. Aborting sync.")
-                break # Hard abort to prevent IP ban
+                break 
 
         if response.status_code != 200:
             logger.error(f"GitHub API Error {response.status_code}: {response.text}")
@@ -45,7 +45,8 @@ async def fetch_with_retry(client: httpx.AsyncClient, url: str) -> list:
 async def sync_user_github_data(user: User, db: Session):
     """The main entry point to fetch and upsert a user's data."""
     if not user.access_token:
-        raise ValueError("User has no access token")
+        logger.error(f"User {user.username} has no access token. Skipping sync.")
+        return 
 
     headers = {
         "Authorization": f"Bearer {user.access_token}",
@@ -61,11 +62,17 @@ async def sync_user_github_data(user: User, db: Session):
             
             pr_url = f"https://api.github.com/repos/{repo_name}/pulls?state=all&per_page=50"
             prs_data = await fetch_with_retry(client, pr_url)
-            upsert_prs(db, user.id, repo_name, prs_data)
+            if prs_data:
+                upsert_prs(db, user.id, repo_name, prs_data)
 
             commits_url = f"https://api.github.com/repos/{repo_name}/commits?author={user.username}&per_page=50"
             commits_data = await fetch_with_retry(client, commits_url)
-            upsert_commits(db, user.id, repo_name, commits_data)
+            if commits_data:
+                upsert_commits(db, user.id, repo_name, commits_data)
+
+    user.last_synced_at = datetime.now(timezone.utc)
+    db.add(user)
+    db.commit()
 
 def upsert_prs(db: Session, user_id: int, repo_name: str, prs_data: list):
     """Idempotent write for Pull Requests."""
@@ -107,7 +114,6 @@ def upsert_commits(db: Session, user_id: int, repo_name: str, commits_data: list
             committed_at=parse_gh_date(author_info.get("date")),
             author_id=user_id
         )
-        # On conflict (duplicate SHA), do nothing. Commits are immutable.
         stmt = stmt.on_conflict_do_nothing(index_elements=["sha"])
         db.execute(stmt)
     db.commit()
