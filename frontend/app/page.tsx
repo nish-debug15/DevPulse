@@ -21,18 +21,21 @@ export default function LandingPage() {
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-zinc-900 via-zinc-950 to-zinc-950 -z-10 opacity-70" />
       
       <Card className="w-full max-w-md border-zinc-800 bg-zinc-900/50 backdrop-blur-md text-zinc-50 shadow-2xl">
-        <CardHeader className="space-y-1.5 pb-6">
-          <div className="flex items-center justify-center space-x-2 mb-2">
+        <CardHeader className="space-y-6 pb-8 pt-6">
+          <div className="flex items-center justify-center space-x-2">
             <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-xs font-mono tracking-widest text-zinc-400 uppercase">System Status: Active</span>
           </div>
-          <CardTitle className="text-3xl font-bold tracking-tight text-center font-mono">DevPulse</CardTitle>
-          <CardDescription className="text-zinc-400 text-center text-sm">
-            AI-driven bottleneck isolation & automated standups.
-          </CardDescription>
+          
+          <div className="space-y-3">
+            <CardTitle className="text-4xl font-bold tracking-tight text-center font-mono">DevPulse</CardTitle>
+            <CardDescription className="text-zinc-300 text-center text-sm font-medium leading-relaxed px-4">
+              AI-driven bottleneck isolation & automated standups.
+            </CardDescription>
+          </div>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
               <input
                 type="text"

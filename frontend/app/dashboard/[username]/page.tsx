@@ -34,7 +34,6 @@ type Params = Promise<{ username: string }>;
 
 async function fetchStandupData(username: string): Promise<StandupData | null> {
   try {
-    // Call our local FastAPI instance with no-store to avoid stale caching
     const res = await fetch(`http://127.0.0.1:8000/users/${username}/standup`, {
       cache: "no-store",
     });
