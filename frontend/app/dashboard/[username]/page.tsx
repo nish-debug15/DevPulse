@@ -169,7 +169,24 @@ async function DashboardRenderer({ paramsPromise }: { paramsPromise: Params }) {
             </div>
           </CardHeader>
           <CardContent className="p-5 font-mono text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
-            {standup_summary}
+            {/* Render the main summary */}
+            <p className="mb-4">{standup_summary?.synthesis_summary || "No summary available."}</p>
+
+            {/* Render the Action Items list if it exists */}
+            {standup_summary?.action_items && standup_summary.action_items.length > 0 && (
+              <div className="mt-4 border-t border-zinc-800 pt-4 text-xs">
+                <span className="text-emerald-400 font-bold tracking-wider uppercase mb-2 block">
+                  Action Items
+                </span>
+                <ul className="list-disc pl-5 space-y-2">
+                  {standup_summary.action_items.map((item: any, idx: number) => (
+                    <li key={idx}>
+                      <span className="text-zinc-100 font-semibold">PR #{item.pr_number}</span>: {item.action}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </CardContent>
         </Card>
 

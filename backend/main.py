@@ -1,7 +1,12 @@
 import os
+import asyncio
 from dotenv import load_dotenv
 
 load_dotenv()
+if not os.getenv("ENCRYPTION_KEY"):
+    raise RuntimeError("CRITICAL STARTUP FAILURE: ENCRYPTION_KEY is missing from .env.")
+if not os.getenv("GROQ_API_KEY"):
+    raise RuntimeError("CRITICAL STARTUP FAILURE: GROQ_API_KEY is missing from .env.")
 
 from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException
 import logging
@@ -21,25 +26,33 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 Base.metadata.create_all(bind=engine)
-
 scheduler = AsyncIOScheduler()
 
 async def scheduled_github_sync():
     """Background job to iterate over all users and sync their data."""
     logger.info("Starting hourly GitHub data sync for all users...")
     
-    with Session(engine) as db:
-        users = db.query(User).all()
-        for user in users:
-            try:
-                await sync_user_github_data(user, db)
-                logger.info(f"Successfully synced data for {user.username}")
-            except Exception as e:
-                logger.error(f"Failed to sync user {user.username}: {e}")
+    def get_user_ids():
+        with Session(engine) as db:
+            return [u.id for u in db.query(User).all()]
+            
+    try:
+        user_ids = await asyncio.to_thread(get_user_ids)
+        
+        for uid in user_ids:
+            with Session(engine) as db:
+                user = db.query(User).get(uid)
+                if user:
+                    try:
+                        await sync_user_github_data(user, db)
+                        logger.info(f"Successfully synced data for {user.username}")
+                    except Exception as e:
+                        logger.error(f"Failed to sync user {user.username}: {e}")
+    except Exception as e:
+        logger.error(f"Critical failure in scheduled sync: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Modern FastAPI pattern for handling startup and shutdown events."""
     scheduler.add_job(
         scheduled_github_sync, 
         'interval', 
@@ -59,7 +72,7 @@ def read_root():
     return {"status": "DevPulse backend is alive", "client_id_loaded": bool(os.getenv("GITHUB_CLIENT_ID"))}
 
 @app.post("/users/{username}/sync")
-async def manual_github_sync(username: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+def manual_github_sync(username: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """Manually triggers the GitHub data sync for a specific user."""
     user = db.query(User).filter(User.username == username).first()
     
@@ -83,7 +96,6 @@ def get_daily_standup(username: str, db: Session = Depends(get_db)):
     try:
         engine = BottleneckEngine(db, user)
         metrics = engine.generate_metrics_payload()
-
         standup_text = StandupGenerator.generate(metrics)
 
         return {
