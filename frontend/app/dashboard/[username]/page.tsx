@@ -27,7 +27,13 @@ interface StandupData {
       pr_count: number;
     };
   };
-  standup_summary: string;
+  standup_summary: {
+    synthesis_summary: string;
+    action_items: {
+      pr_number: number;
+      action: string;
+    }[];
+  };
 }
 
 type Params = Promise<{ username: string }>;
