@@ -9,7 +9,7 @@ if not os.getenv("GROQ_API_KEY"):
     raise RuntimeError("CRITICAL STARTUP FAILURE: GROQ_API_KEY is missing from .env.")
 
 from typing import Optional
-from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Query, Request, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 from contextlib import asynccontextmanager
@@ -23,6 +23,8 @@ from auth.github_oauth import router as auth_router
 
 from services.engine import BottleneckEngine
 from services.ai_synthesis import StandupGenerator
+from services.slack_notifier import SlackNotifier
+from auth.jwt_handler import verify_session_token
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -81,6 +83,22 @@ app.include_router(auth_router)
 @app.get("/")
 def read_root():
     return {"status": "DevPulse backend is alive", "client_id_loaded": bool(os.getenv("GITHUB_CLIENT_ID"))}
+
+
+@app.get("/auth/me")
+def get_current_user(devpulse_session: Optional[str] = Cookie(None), db: Session = Depends(get_db)):
+    if not devpulse_session:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    payload = verify_session_token(devpulse_session)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+    user = db.query(User).filter(User.username == payload.get("sub")).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    return {"username": user.username, "name": user.name, "github_id": user.github_id}
 
 @app.post("/users/{username}/sync")
 def manual_github_sync(username: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
@@ -198,4 +216,36 @@ def get_pr_bottlenecks(
         "status": "success",
         "total_bottlenecks": total_bottlenecks,
         "by_user": by_user,
+    }
+
+
+@app.post("/slack/send")
+def send_slack_notification(
+    request_body: dict,
+    db: Session = Depends(get_db),
+):
+    username = request_body.get("username")
+    msg_type = request_body.get("type", "standup")
+
+    if not username:
+        raise HTTPException(status_code=400, detail="'username' is required")
+
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User '{username}' not found")
+
+    if msg_type == "standup":
+        be = BottleneckEngine(db, user)
+        metrics = be.generate_metrics_payload()
+        standup_text = StandupGenerator.generate(metrics)
+        sent = SlackNotifier.send_standup(username, standup_text)
+    elif msg_type == "bottleneck":
+        payload = _build_user_bottleneck(db, user)
+        sent = SlackNotifier.send_bottleneck_alert(username, payload)
+    else:
+        raise HTTPException(status_code=400, detail="'type' must be 'standup' or 'bottleneck'")
+
+    return {
+        "status": "sent" if sent else "skipped",
+        "message": "Notification delivered to Slack" if sent else "SLACK_WEBHOOK_URL not configured",
     }
