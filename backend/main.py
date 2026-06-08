@@ -8,7 +8,9 @@ if not os.getenv("ENCRYPTION_KEY"):
 if not os.getenv("GROQ_API_KEY"):
     raise RuntimeError("CRITICAL STARTUP FAILURE: GROQ_API_KEY is missing from .env.")
 
-from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException
+from typing import Optional
+from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 import logging
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -65,6 +67,15 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
 
 app = FastAPI(title="DevPulse API", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(auth_router)
 
 @app.get("/")
@@ -107,3 +118,84 @@ def get_daily_standup(username: str, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error generating standup for {username}: {e}")
         raise HTTPException(status_code=500, detail="Failed to generate the AI standup.")
+
+
+def _classify_severity(hours_open: float) -> str:
+    """Classify a stale PR's severity based on how long it has been open."""
+    if hours_open > 168:
+        return "critical"
+    elif hours_open > 72:
+        return "warning"
+    return "stale"
+
+
+def _build_user_bottleneck(db: Session, user: User) -> dict:
+    """Build the bottleneck payload for a single user using BottleneckEngine."""
+    be = BottleneckEngine(db, user)
+    stale_prs = be.get_stale_prs()
+    commit_velocity = be.get_commit_velocity()
+    merge_lag = be.get_merge_lag()
+
+    critical_count = 0
+    warning_count = 0
+    stale_count = 0
+    bottlenecks_by_repo: dict[str, list] = {}
+
+    for pr in stale_prs:
+        severity = _classify_severity(pr["hours_open"])
+        if severity == "critical":
+            critical_count += 1
+        elif severity == "warning":
+            warning_count += 1
+        else:
+            stale_count += 1
+
+        repo = pr["repo"]
+        bottlenecks_by_repo.setdefault(repo, []).append({
+            "number": pr["number"],
+            "title": pr["title"],
+            "hours_open": pr["hours_open"],
+            "severity": severity,
+        })
+
+    return {
+        "username": user.username,
+        "summary": {
+            "total_stale_prs": len(stale_prs),
+            "critical_count": critical_count,
+            "warning_count": warning_count,
+            "stale_count": stale_count,
+            "commit_velocity": commit_velocity,
+            "merge_lag": merge_lag,
+        },
+        "bottlenecks_by_repo": bottlenecks_by_repo,
+    }
+
+
+@app.get("/pr/bottlenecks")
+def get_pr_bottlenecks(
+    username: Optional[str] = Query(None, description="Filter bottlenecks for a specific GitHub username"),
+    db: Session = Depends(get_db),
+):
+    """Returns PR bottleneck data grouped by user and repo with severity classification."""
+    if username:
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            raise HTTPException(status_code=404, detail=f"User '{username}' not found")
+        users = [user]
+    else:
+        users = db.query(User).all()
+
+    by_user = []
+    total_bottlenecks = 0
+
+    for user in users:
+        payload = _build_user_bottleneck(db, user)
+        total_bottlenecks += payload["summary"]["total_stale_prs"]
+        by_user.append(payload)
+
+    return {
+        "status": "success",
+        "total_bottlenecks": total_bottlenecks,
+        "by_user": by_user,
+    }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { BottleneckRegister, type BottleneckData } from "@/components/bottleneck-register";
 
 interface MetricRow {
   repo: string;
@@ -51,6 +52,19 @@ async function fetchStandupData(username: string): Promise<StandupData | null> {
   }
 }
 
+async function fetchBottleneckData(username: string): Promise<BottleneckData | null> {
+  try {
+    const res = await fetch(`http://127.0.0.1:8000/pr/bottlenecks?username=${username}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch (error) {
+    console.error("Failed to fetch bottleneck data:", error);
+    return null;
+  }
+}
+
 export default function DashboardPage({ params }: { params: Params }) {
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-50 p-6 font-sans">
@@ -62,7 +76,10 @@ export default function DashboardPage({ params }: { params: Params }) {
 
 async function DashboardRenderer({ paramsPromise }: { paramsPromise: Params }) {
   const { username } = await paramsPromise;
-  const data = await fetchStandupData(username);
+  const [data, bottleneckData] = await Promise.all([
+    fetchStandupData(username),
+    fetchBottleneckData(username),
+  ]);
 
   if (!data) {
     return (
@@ -196,34 +213,18 @@ async function DashboardRenderer({ paramsPromise }: { paramsPromise: Params }) {
           </CardContent>
         </Card>
 
-        {/* Right Column: Direct Stale PR Node Tracking */}
+        {/* Right Column: Bottleneck Accordion Register */}
         <Card className="border-zinc-800 bg-zinc-900/10 text-zinc-50">
           <CardHeader className="p-4 pb-3">
             <CardTitle className="text-sm font-mono tracking-wide">Blockage Register</CardTitle>
             <CardDescription className="text-zinc-500 text-xs font-mono">Isolated latency lines</CardDescription>
           </CardHeader>
-          <CardContent className="p-4 pt-0 space-y-3">
-            {stale_prs.length === 0 ? (
-              <div className="text-xs font-mono text-zinc-600 text-center py-6 border border-dashed border-zinc-800 rounded-md">
-                No pipeline friction detected. Clean execution.
-              </div>
-            ) : (
-              stale_prs.map((pr, index) => (
-                <div key={index} className="p-3 bg-zinc-900/60 border border-zinc-800/80 rounded-md space-y-1.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="text-xs font-mono text-zinc-400 font-bold truncate block max-w-[70%]">
-                      {pr.repo}
-                    </span>
-                    <Badge className="bg-amber-950 text-amber-400 hover:bg-amber-950 border border-amber-800/50 font-mono text-[10px] px-1.5 py-0">
-                      {pr.hours_open}h open
-                    </Badge>
-                  </div>
-                  <div className="text-xs font-mono text-zinc-200 font-medium line-clamp-1">
-                    #{pr.number} - {pr.title}
-                  </div>
-                </div>
-              ))
-            )}
+          <CardContent className="p-4 pt-0">
+            <BottleneckRegister
+              data={bottleneckData}
+              fallbackPRs={stale_prs}
+              username={username}
+            />
           </CardContent>
         </Card>
       </div>
