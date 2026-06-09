@@ -13,6 +13,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
 
 @router.get("/login")
@@ -63,13 +64,15 @@ async def github_callback(code: str, db: Session = Depends(get_db)):
 
         session_token = create_session_token(db_user.username, db_user.github_id)
         redirect_url = f"{FRONTEND_URL}/dashboard/{db_user.username}"
+        is_prod = ENVIRONMENT == "production"
         response = RedirectResponse(url=redirect_url)
         response.set_cookie(
             key="devpulse_session",
             value=session_token,
             httponly=True,
             samesite="lax",
-            secure=False,
+            secure=is_prod,
+            domain=os.getenv("COOKIE_DOMAIN") if is_prod else None,
             path="/",
             max_age=7 * 24 * 60 * 60,
         )

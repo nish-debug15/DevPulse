@@ -9,7 +9,8 @@ if not os.getenv("GROQ_API_KEY"):
     raise RuntimeError("CRITICAL STARTUP FAILURE: GROQ_API_KEY is missing from .env.")
 
 from typing import Optional
-from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Query, Request, Cookie
+from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 from contextlib import asynccontextmanager
@@ -24,7 +25,7 @@ from auth.github_oauth import router as auth_router
 from services.engine import BottleneckEngine
 from services.ai_synthesis import StandupGenerator
 from services.slack_notifier import SlackNotifier
-from auth.jwt_handler import verify_session_token
+from auth.dependencies import get_authenticated_user
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -86,22 +87,23 @@ def read_root():
 
 
 @app.get("/auth/me")
-def get_current_user(devpulse_session: Optional[str] = Cookie(None), db: Session = Depends(get_db)):
-    if not devpulse_session:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    payload = verify_session_token(devpulse_session)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid or expired session")
-
-    user = db.query(User).filter(User.username == payload.get("sub")).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-
+def get_current_user(user: User = Depends(get_authenticated_user)):
     return {"username": user.username, "name": user.name, "github_id": user.github_id}
 
+
+@app.post("/auth/logout")
+def logout():
+    response = JSONResponse(content={"status": "logged_out"})
+    response.delete_cookie(key="devpulse_session", path="/")
+    return response
+
 @app.post("/users/{username}/sync")
-def manual_github_sync(username: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+def manual_github_sync(
+    username: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_authenticated_user),
+):
     """Manually triggers the GitHub data sync for a specific user."""
     user = db.query(User).filter(User.username == username).first()
     
@@ -116,7 +118,11 @@ def manual_github_sync(username: str, background_tasks: BackgroundTasks, db: Ses
     }
 
 @app.get("/users/{username}/standup")
-def get_daily_standup(username: str, db: Session = Depends(get_db)):
+def get_daily_standup(
+    username: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_authenticated_user),
+):
     """Generates the AI-powered standup for a specific user."""
     user = db.query(User).filter(User.username == username).first()
     if not user:
@@ -194,6 +200,7 @@ def _build_user_bottleneck(db: Session, user: User) -> dict:
 def get_pr_bottlenecks(
     username: Optional[str] = Query(None, description="Filter bottlenecks for a specific GitHub username"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_authenticated_user),
 ):
     """Returns PR bottleneck data grouped by user and repo with severity classification."""
     if username:
@@ -223,6 +230,7 @@ def get_pr_bottlenecks(
 def send_slack_notification(
     request_body: dict,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_authenticated_user),
 ):
     username = request_body.get("username")
     msg_type = request_body.get("type", "standup")

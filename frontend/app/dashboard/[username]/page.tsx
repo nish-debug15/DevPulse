@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -39,10 +40,17 @@ interface StandupData {
 
 type Params = Promise<{ username: string }>;
 
+async function authHeaders(): Promise<HeadersInit> {
+  const cookieStore = await cookies();
+  const session = cookieStore.get("devpulse_session")?.value;
+  return session ? { Cookie: `devpulse_session=${session}` } : {};
+}
+
 async function fetchStandupData(username: string): Promise<StandupData | null> {
   try {
     const res = await fetch(`http://127.0.0.1:8000/users/${username}/standup`, {
       cache: "no-store",
+      headers: await authHeaders(),
     });
     if (!res.ok) return null;
     return res.json();
@@ -56,6 +64,7 @@ async function fetchBottleneckData(username: string): Promise<BottleneckData | n
   try {
     const res = await fetch(`http://127.0.0.1:8000/pr/bottlenecks?username=${username}`, {
       cache: "no-store",
+      headers: await authHeaders(),
     });
     if (!res.ok) return null;
     return res.json();
