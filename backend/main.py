@@ -25,6 +25,7 @@ from auth.github_oauth import router as auth_router
 from services.engine import BottleneckEngine
 from services.ai_synthesis import StandupGenerator
 from services.slack_notifier import SlackNotifier
+from services.query_engine import QueryEngine
 from auth.dependencies import get_authenticated_user
 
 logging.basicConfig(level=logging.INFO)
@@ -257,3 +258,16 @@ def send_slack_notification(
         "status": "sent" if sent else "skipped",
         "message": "Notification delivered to Slack" if sent else "SLACK_WEBHOOK_URL not configured",
     }
+
+
+@app.post("/query")
+def natural_language_query(
+    request_body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_authenticated_user),
+):
+    question = request_body.get("question", "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="'question' is required")
+
+    return QueryEngine.ask(question, db, current_user)
