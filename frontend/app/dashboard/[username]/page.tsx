@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { BottleneckRegister, type BottleneckData } from "@/components/bottleneck-register";
+import { TeamSidebar } from "@/components/team-sidebar";
 
 interface MetricRow {
   repo: string;
@@ -76,7 +77,7 @@ async function fetchBottleneckData(username: string): Promise<BottleneckData | n
 
 export default function DashboardPage({ params }: { params: Params }) {
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-50 p-6 font-sans">
+    <main className="min-h-screen bg-zinc-950 text-zinc-50 font-sans flex">
       {/* Promise resolution wrapper inside async runtime */}
       <DashboardRenderer paramsPromise={params} />
     </main>
@@ -92,11 +93,14 @@ async function DashboardRenderer({ paramsPromise }: { paramsPromise: Params }) {
 
   if (!data) {
     return (
-      <div className="flex min-h-[80vh] flex-col items-center justify-center space-y-4">
-        <p className="font-mono text-sm text-zinc-400">Failed to pull target synchronization profile.</p>
-        <Link href="/" className="text-xs font-mono text-zinc-500 hover:text-zinc-200 underline underline-offset-4">
-          ← Return to Entry Node
-        </Link>
+      <div className="flex w-full">
+        <TeamSidebar currentViewedUser={username} />
+        <div className="flex flex-1 min-h-[80vh] flex-col items-center justify-center space-y-4 p-6">
+          <p className="font-mono text-sm text-zinc-400">Failed to pull target synchronization profile.</p>
+          <Link href="/" className="text-xs font-mono text-zinc-500 hover:text-zinc-200 underline underline-offset-4">
+            ← Return to Entry Node
+          </Link>
+        </div>
       </div>
     );
   }
@@ -105,7 +109,10 @@ async function DashboardRenderer({ paramsPromise }: { paramsPromise: Params }) {
   const { commit_velocity, merge_lag, stale_prs } = metrics_snapshot;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className="flex w-full">
+      <TeamSidebar currentViewedUser={username} />
+      <div className="flex-1 p-6">
+        <div className="max-w-7xl mx-auto space-y-6">
       {/* Header Pipeline Status */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between border-b border-zinc-800 pb-5 gap-4">
         <div>
@@ -236,6 +243,7 @@ async function DashboardRenderer({ paramsPromise }: { paramsPromise: Params }) {
             />
           </CardContent>
         </Card>
+      </div>
       </div>
     </div>
   );

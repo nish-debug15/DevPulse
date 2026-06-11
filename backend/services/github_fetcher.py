@@ -15,7 +15,6 @@ def parse_gh_date(date_str: str):
     return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
 
 async def fetch_with_retry(client: httpx.AsyncClient, url: str) -> list:
-    """Handles rate limits and pagination seamlessly."""
     results = []
     current_url = url
 
@@ -43,7 +42,6 @@ async def fetch_with_retry(client: httpx.AsyncClient, url: str) -> list:
     return results
 
 async def sync_user_github_data(user: User, db: Session):
-    """The main entry point to fetch and upsert a user's data."""
     if not user.access_token:
         logger.error(f"User {user.username} has no access token. Skipping sync.")
         return 
@@ -74,8 +72,42 @@ async def sync_user_github_data(user: User, db: Session):
     db.add(user)
     db.commit()
 
+
+async def sync_tracked_developer(target_username: str, manager: User, shadow_user: User, db: Session):
+    if not manager.access_token:
+        logger.error(f"Manager {manager.username} has no access token. Cannot sync tracked dev.")
+        return
+
+    headers = {
+        "Authorization": f"Bearer {manager.access_token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+
+    async with httpx.AsyncClient(headers=headers, timeout=10.0) as client:
+        repos_url = f"https://api.github.com/users/{target_username}/repos?sort=updated&per_page=10"
+        repos = await fetch_with_retry(client, repos_url)
+
+        for repo in repos:
+            repo_name = repo["full_name"]
+
+            pr_url = f"https://api.github.com/repos/{repo_name}/pulls?state=all&per_page=50"
+            prs_data = await fetch_with_retry(client, pr_url)
+            if prs_data:
+                user_prs = [pr for pr in prs_data if pr.get("user", {}).get("login") == target_username]
+                if user_prs:
+                    upsert_prs(db, shadow_user.id, repo_name, user_prs)
+
+            commits_url = f"https://api.github.com/repos/{repo_name}/commits?author={target_username}&per_page=50"
+            commits_data = await fetch_with_retry(client, commits_url)
+            if commits_data:
+                upsert_commits(db, shadow_user.id, repo_name, commits_data)
+
+    shadow_user.last_synced_at = datetime.now(timezone.utc)
+    db.add(shadow_user)
+    db.commit()
+
+
 def upsert_prs(db: Session, user_id: int, repo_name: str, prs_data: list):
-    """Idempotent write for Pull Requests."""
     for pr in prs_data:
         stmt = insert(PullRequest).values(
             github_pr_id=pr["id"],
@@ -102,7 +134,6 @@ def upsert_prs(db: Session, user_id: int, repo_name: str, prs_data: list):
     db.commit()
 
 def upsert_commits(db: Session, user_id: int, repo_name: str, commits_data: list):
-    """Idempotent write for Commits."""
     for item in commits_data:
         commit_info = item.get("commit", {})
         author_info = commit_info.get("author", {})
@@ -110,7 +141,7 @@ def upsert_commits(db: Session, user_id: int, repo_name: str, commits_data: list
         stmt = insert(Commit).values(
             sha=item["sha"],
             repo_name=repo_name,
-            message=commit_info.get("message", "")[:255], # Truncate massive commit messages
+            message=commit_info.get("message", "")[:255],
             committed_at=parse_gh_date(author_info.get("date")),
             author_id=user_id
         )

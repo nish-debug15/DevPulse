@@ -18,8 +18,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy.orm import Session
 
 from db.database import get_db, engine, Base
-from db.models import User
-from services.github_fetcher import sync_user_github_data
+from db.models import User, TrackedDeveloper
+from services.github_fetcher import sync_user_github_data, sync_tracked_developer
 from auth.github_oauth import router as auth_router
 
 from services.engine import BottleneckEngine
@@ -40,7 +40,7 @@ async def scheduled_github_sync():
     
     def get_user_ids():
         with Session(engine) as db:
-            return [u.id for u in db.query(User).all()]
+            return [u.id for u in db.query(User).filter(User.access_token.isnot(None)).all()]
             
     try:
         user_ids = await asyncio.to_thread(get_user_ids)
@@ -54,6 +54,14 @@ async def scheduled_github_sync():
                         logger.info(f"Successfully synced data for {user.username}")
                     except Exception as e:
                         logger.error(f"Failed to sync user {user.username}: {e}")
+
+                    tracked = db.query(TrackedDeveloper).filter(TrackedDeveloper.manager_id == user.id).all()
+                    for td in tracked:
+                        try:
+                            await sync_tracked_developer(td.developer.username, user, td.developer, db)
+                            logger.info(f"Synced tracked dev {td.developer.username} for manager {user.username}")
+                        except Exception as e:
+                            logger.error(f"Failed to sync tracked dev {td.developer.username}: {e}")
     except Exception as e:
         logger.error(f"Critical failure in scheduled sync: {e}")
 
@@ -271,3 +279,133 @@ def natural_language_query(
         raise HTTPException(status_code=400, detail="'question' is required")
 
     return QueryEngine.ask(question, db, current_user)
+
+
+@app.post("/team/add")
+async def add_tracked_developer(
+    request_body: dict,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_authenticated_user),
+):
+    github_username = request_body.get("github_username", "").strip().lower()
+    if not github_username:
+        raise HTTPException(status_code=400, detail="'github_username' is required")
+
+    if github_username == current_user.username:
+        raise HTTPException(status_code=400, detail="You are already tracking yourself")
+
+    import httpx
+    headers = {
+        "Authorization": f"Bearer {current_user.access_token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    async with httpx.AsyncClient(headers=headers, timeout=10.0) as client:
+        res = await client.get(f"https://api.github.com/users/{github_username}")
+        if res.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"GitHub user '{github_username}' does not exist")
+        if res.status_code != 200:
+            raise HTTPException(status_code=502, detail="Failed to verify user on GitHub")
+        gh_data = res.json()
+
+    shadow_user = db.query(User).filter(User.username == github_username).first()
+    if not shadow_user:
+        shadow_user = User(
+            github_id=gh_data["id"],
+            username=github_username,
+            name=gh_data.get("name"),
+            access_token=None,
+        )
+        db.add(shadow_user)
+        db.commit()
+        db.refresh(shadow_user)
+
+    existing = db.query(TrackedDeveloper).filter(
+        TrackedDeveloper.manager_id == current_user.id,
+        TrackedDeveloper.developer_id == shadow_user.id,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Already tracking '{github_username}'")
+
+    td = TrackedDeveloper(manager_id=current_user.id, developer_id=shadow_user.id)
+    db.add(td)
+    db.commit()
+
+    background_tasks.add_task(sync_tracked_developer, github_username, current_user, shadow_user, db)
+
+    return {
+        "status": "added",
+        "developer": {
+            "username": shadow_user.username,
+            "name": shadow_user.name,
+            "github_id": shadow_user.github_id,
+        },
+    }
+
+
+@app.get("/team")
+def list_tracked_developers(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_authenticated_user),
+):
+    tracked = db.query(TrackedDeveloper).filter(
+        TrackedDeveloper.manager_id == current_user.id
+    ).all()
+
+    developers = []
+    for td in tracked:
+        dev = td.developer
+        developers.append({
+            "username": dev.username,
+            "name": dev.name,
+            "github_id": dev.github_id,
+            "last_synced_at": dev.last_synced_at.isoformat() if dev.last_synced_at else None,
+            "added_at": td.added_at.isoformat() if td.added_at else None,
+        })
+
+    return {"status": "success", "team": developers}
+
+
+@app.delete("/team/{github_username}")
+def remove_tracked_developer(
+    github_username: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_authenticated_user),
+):
+    shadow_user = db.query(User).filter(User.username == github_username).first()
+    if not shadow_user:
+        raise HTTPException(status_code=404, detail=f"Developer '{github_username}' not found")
+
+    td = db.query(TrackedDeveloper).filter(
+        TrackedDeveloper.manager_id == current_user.id,
+        TrackedDeveloper.developer_id == shadow_user.id,
+    ).first()
+    if not td:
+        raise HTTPException(status_code=404, detail=f"You are not tracking '{github_username}'")
+
+    db.delete(td)
+    db.commit()
+
+    return {"status": "removed", "username": github_username}
+
+
+@app.post("/team/{github_username}/sync")
+async def sync_single_tracked_developer(
+    github_username: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_authenticated_user),
+):
+    shadow_user = db.query(User).filter(User.username == github_username).first()
+    if not shadow_user:
+        raise HTTPException(status_code=404, detail=f"Developer '{github_username}' not found")
+
+    td = db.query(TrackedDeveloper).filter(
+        TrackedDeveloper.manager_id == current_user.id,
+        TrackedDeveloper.developer_id == shadow_user.id,
+    ).first()
+    if not td:
+        raise HTTPException(status_code=404, detail=f"You are not tracking '{github_username}'")
+
+    await sync_tracked_developer(github_username, current_user, shadow_user, db)
+
+    return {"status": "synced", "username": github_username}

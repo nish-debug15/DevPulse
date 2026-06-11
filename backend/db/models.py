@@ -1,6 +1,6 @@
 import os
 from cryptography.fernet import Fernet
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.types import TypeDecorator
@@ -10,9 +10,6 @@ ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", Fernet.generate_key().decode()
 fernet = Fernet(ENCRYPTION_KEY.encode())
 
 class EncryptedString(TypeDecorator):
-    """
-    Transparently encrypts/decrypts strings using Fernet symmetric encryption.
-    """
     impl = String
     cache_ok = True
 
@@ -37,13 +34,27 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     name = Column(String, nullable=True)
     
-    access_token = Column(EncryptedString, nullable=False) 
+    access_token = Column(EncryptedString, nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_synced_at = Column(DateTime(timezone=True), nullable=True)
 
     pull_requests = relationship("PullRequest", back_populates="author")
     commits = relationship("Commit", back_populates="author")
+
+class TrackedDeveloper(Base):
+    __tablename__ = "tracked_developers"
+    __table_args__ = (
+        UniqueConstraint("manager_id", "developer_id", name="uq_manager_developer"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    manager_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    developer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    added_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    manager = relationship("User", foreign_keys=[manager_id], backref="tracked_developers")
+    developer = relationship("User", foreign_keys=[developer_id])
 
 class PullRequest(Base):
     __tablename__ = "pull_requests"
