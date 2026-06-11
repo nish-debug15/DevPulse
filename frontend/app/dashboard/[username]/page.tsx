@@ -244,6 +244,7 @@ async function DashboardRenderer({ paramsPromise }: { paramsPromise: Params }) {
           </CardContent>
         </Card>
       </div>
+        </div>
       </div>
     </div>
   );
