@@ -68,7 +68,7 @@ class BottleneckEngine:
         """Calculates average hours from PR creation to merge over the last 30 days."""
         thirty_days_ago = self.now - timedelta(days=30)
         
-        merged_prs = self.db.query(PullRequest).filter(
+        merged_prs = self.db.query(PullRequest.created_at, PullRequest.merged_at).filter(
             PullRequest.author_id == self.user.id,
             PullRequest.is_merged == True,
             PullRequest.merged_at >= thirty_days_ago
@@ -78,12 +78,12 @@ class BottleneckEngine:
             return {"average_hours": 0, "pr_count": 0}
 
         total_seconds = 0
-        for pr in merged_prs:
-            merged_at = self._ensure_aware(pr.merged_at)
-            created_at = self._ensure_aware(pr.created_at)
+        for created_at, merged_at in merged_prs:
+            merged_at_dt = self._ensure_aware(merged_at)
+            created_at_dt = self._ensure_aware(created_at)
             
-            if merged_at and created_at:
-                total_seconds += (merged_at - created_at).total_seconds()
+            if merged_at_dt and created_at_dt:
+                total_seconds += (merged_at_dt - created_at_dt).total_seconds()
         
         avg_hours = (total_seconds / len(merged_prs)) / 3600
 

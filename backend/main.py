@@ -44,24 +44,28 @@ async def scheduled_github_sync():
             
     try:
         user_ids = await asyncio.to_thread(get_user_ids)
-        
-        for uid in user_ids:
-            with Session(engine) as db:
-                user = db.query(User).get(uid)
-                if user:
-                    try:
-                        await sync_user_github_data(user, db)
-                        logger.info(f"Successfully synced data for {user.username}")
-                    except Exception as e:
-                        logger.error(f"Failed to sync user {user.username}: {e}")
+        sem = asyncio.Semaphore(5)
 
-                    tracked = db.query(TrackedDeveloper).filter(TrackedDeveloper.manager_id == user.id).all()
-                    for td in tracked:
+        async def sync_user_task(uid: int):
+            async with sem:
+                with Session(engine) as db:
+                    user = db.query(User).get(uid)
+                    if user:
                         try:
-                            await sync_tracked_developer(td.developer.username, user, td.developer, db)
-                            logger.info(f"Synced tracked dev {td.developer.username} for manager {user.username}")
+                            await sync_user_github_data(user, db)
+                            logger.info(f"Successfully synced data for {user.username}")
                         except Exception as e:
-                            logger.error(f"Failed to sync tracked dev {td.developer.username}: {e}")
+                            logger.error(f"Failed to sync user {user.username}: {e}")
+
+                        tracked = db.query(TrackedDeveloper).filter(TrackedDeveloper.manager_id == user.id).all()
+                        for td in tracked:
+                            try:
+                                await sync_tracked_developer(td.developer.username, user, td.developer, db)
+                                logger.info(f"Synced tracked dev {td.developer.username} for manager {user.username}")
+                            except Exception as e:
+                                logger.error(f"Failed to sync tracked dev {td.developer.username}: {e}")
+
+        await asyncio.gather(*(sync_user_task(uid) for uid in user_ids))
     except Exception as e:
         logger.error(f"Critical failure in scheduled sync: {e}")
 

@@ -49,12 +49,12 @@ class QueryEngine:
         recent_prs = db.query(PullRequest).filter(
             PullRequest.author_id == user.id,
             PullRequest.created_at >= thirty_days_ago,
-        ).order_by(PullRequest.created_at.desc()).limit(50).all()
+        ).order_by(PullRequest.created_at.desc()).limit(20).all()
 
         recent_commits = db.query(Commit).filter(
             Commit.author_id == user.id,
             Commit.committed_at >= thirty_days_ago,
-        ).order_by(Commit.committed_at.desc()).limit(100).all()
+        ).order_by(Commit.committed_at.desc()).limit(30).all()
 
         be = BottleneckEngine(db, user)
 
