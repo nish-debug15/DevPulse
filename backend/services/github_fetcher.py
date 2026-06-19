@@ -36,7 +36,7 @@ async def fetch_with_retry(client: httpx.AsyncClient, url: str) -> list:
 
         current_url = response.links.get("next", {}).get("url")
         
-        if len(results) >= 100: 
+        if len(results) >= 500: 
             break 
 
     return results
