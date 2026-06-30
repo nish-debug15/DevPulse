@@ -1,5 +1,7 @@
+import asyncio
 import httpx
 import logging
+import time
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.sqlite import insert
@@ -9,35 +11,92 @@ from db.models import User, PullRequest, Commit
 
 logger = logging.getLogger(__name__)
 
+MAX_RETRIES = 3
+BACKOFF_BASE_SECONDS = 2
+
+
 def parse_gh_date(date_str: str):
     if not date_str:
         return None
     return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
 
+
+async def _wait_for_rate_limit_reset(response: httpx.Response) -> None:
+    """Sleep until the GitHub rate limit resets, based on response headers."""
+    reset_timestamp = response.headers.get("X-RateLimit-Reset")
+    if reset_timestamp:
+        wait_seconds = max(int(reset_timestamp) - int(time.time()), 1) + 1
+        # Cap the wait to 15 minutes to avoid infinite hangs
+        wait_seconds = min(wait_seconds, 900)
+        logger.warning(f"Rate limit hit. Sleeping for {wait_seconds}s until reset.")
+        await asyncio.sleep(wait_seconds)
+    else:
+        # Fallback: if no reset header, wait 60s
+        logger.warning("Rate limit hit but no reset header found. Sleeping 60s.")
+        await asyncio.sleep(60)
+
+
 async def fetch_with_retry(client: httpx.AsyncClient, url: str) -> list:
+    """
+    Paginated GitHub API fetcher with:
+    - Rate-limit awareness: sleeps until X-RateLimit-Reset on 403/429.
+    - Exponential backoff: retries transient 5xx errors up to MAX_RETRIES.
+    - Pagination cap: stops after 500 items to avoid runaway syncs.
+    """
     results = []
     current_url = url
 
     while current_url:
-        response = await client.get(current_url)
-        
-        remaining = int(response.headers.get("X-RateLimit-Remaining", 100))
-        if remaining < 10:
-            logger.warning(f"RATE LIMIT WARNING: Only {remaining} requests left.")
-            if remaining == 0:
-                logger.error("Rate limit exhausted. Aborting sync.")
-                break 
+        retries = 0
+        response = None
 
-        if response.status_code != 200:
-            logger.error(f"GitHub API Error {response.status_code}: {response.text}")
+        while retries <= MAX_RETRIES:
+            response = await client.get(current_url)
+
+            # --- Rate Limit Handling (403 or 429) ---
+            if response.status_code in (403, 429):
+                remaining = int(response.headers.get("X-RateLimit-Remaining", 1))
+                if remaining == 0 or response.status_code == 429:
+                    await _wait_for_rate_limit_reset(response)
+                    retries += 1
+                    continue
+                # 403 for non-rate-limit reasons (e.g. repo access denied)
+                logger.error(f"GitHub 403 (not rate limit): {response.text[:200]}")
+                return results
+
+            # --- Transient Server Errors (5xx) ---
+            if response.status_code >= 500:
+                retries += 1
+                wait = BACKOFF_BASE_SECONDS ** retries
+                logger.warning(
+                    f"GitHub {response.status_code} error. Retry {retries}/{MAX_RETRIES} in {wait}s."
+                )
+                await asyncio.sleep(wait)
+                continue
+
+            # --- Other Client Errors (4xx) ---
+            if response.status_code != 200:
+                logger.error(f"GitHub API Error {response.status_code}: {response.text[:200]}")
+                return results
+
+            # --- Success ---
             break
+        else:
+            # Exhausted all retries
+            logger.error(f"Exhausted {MAX_RETRIES} retries for {current_url}. Skipping.")
+            return results
+
+        # Log low rate-limit headroom as a warning
+        remaining = int(response.headers.get("X-RateLimit-Remaining", 100))
+        if remaining < 50:
+            logger.warning(f"Rate limit headroom low: {remaining} requests remaining.")
 
         results.extend(response.json())
 
         current_url = response.links.get("next", {}).get("url")
-        
-        if len(results) >= 500: 
-            break 
+
+        if len(results) >= 500:
+            break
 
     return results
 
