@@ -9,13 +9,16 @@ if not os.getenv("GROQ_API_KEY"):
     raise RuntimeError("CRITICAL STARTUP FAILURE: GROQ_API_KEY is missing from .env.")
 
 from typing import Optional
-from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import FastAPI, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy.orm import Session
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from db.database import get_db, engine, Base
 from db.models import User, TrackedDeveloper
@@ -82,7 +85,12 @@ async def lifespan(app: FastAPI):
     yield
     scheduler.shutdown()
 
+# --- Rate Limiter Setup ---
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(title="DevPulse API", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -131,7 +139,9 @@ def manual_github_sync(
     }
 
 @app.get("/users/{username}/standup")
+@limiter.limit("10/minute")
 def get_daily_standup(
+    request: Request,
     username: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_authenticated_user),
@@ -210,7 +220,9 @@ def _build_user_bottleneck(db: Session, user: User) -> dict:
 
 
 @app.get("/pr/bottlenecks")
+@limiter.limit("30/minute")
 def get_pr_bottlenecks(
+    request: Request,
     username: Optional[str] = Query(None, description="Filter bottlenecks for a specific GitHub username"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_authenticated_user),
@@ -240,7 +252,9 @@ def get_pr_bottlenecks(
 
 
 @app.post("/slack/send")
+@limiter.limit("10/minute")
 def send_slack_notification(
+    request: Request,
     request_body: dict,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_authenticated_user),
@@ -273,7 +287,9 @@ def send_slack_notification(
 
 
 @app.post("/query")
+@limiter.limit("10/minute")
 def natural_language_query(
+    request: Request,
     request_body: dict,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_authenticated_user),

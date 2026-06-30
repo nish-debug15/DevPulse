@@ -2,7 +2,9 @@ import os
 import jwt
 from datetime import datetime, timedelta, timezone
 
-JWT_SECRET = os.getenv("JWT_SECRET", "fallback-dev-secret")
+JWT_SECRET = os.getenv("JWT_SECRET")
+if not JWT_SECRET:
+    raise RuntimeError("CRITICAL STARTUP FAILURE: JWT_SECRET is missing from .env.")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_DAYS = 7
 
