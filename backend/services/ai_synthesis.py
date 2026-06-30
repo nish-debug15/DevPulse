@@ -36,7 +36,7 @@ class StandupGenerator:
     @classmethod
     def generate(cls, metrics_payload: dict) -> dict:
         """
-        Feeds deterministic database metrics into Llama 3 70B.
+        Feeds deterministic database metrics into Qwen 3.6 27B.
         Returns a validated dictionary matching the StandupSynthesis schema.
         """
         schema_json = StandupSynthesis.model_json_schema()
@@ -62,7 +62,7 @@ class StandupGenerator:
                         "content": f"Generate actionable JSON based on this current state:\n{json.dumps(metrics_payload, indent=2)}"
                     }
                 ],
-                model="llama-3.3-70b-versatile",
+                model="qwen-3.6-27b",
                 temperature=0.1, 
                 max_tokens=800,
                 response_format={"type": "json_object"} 

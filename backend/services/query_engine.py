@@ -106,7 +106,7 @@ class QueryEngine:
                         ),
                     },
                 ],
-                model="llama-3.3-70b-versatile",
+                model="qwen-3.6-27b",
                 temperature=0.2,
                 max_tokens=1024,
             )

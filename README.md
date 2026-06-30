@@ -23,7 +23,7 @@ DevPulse connects to your GitHub repos and automatically surfaces what's slowing
 | Backend | FastAPI | Fast, async, great DX |
 | Scheduling | APScheduler | Cron-style sync jobs, no broker needed |
 | Database | SQLite → PostgreSQL (RDS) | SQLite locally, Postgres in prod |
-| LLM | Groq API (Llama 3 70B) | Fast inference, generous free tier |
+| LLM | Groq API (Qwen 3.6 27B) | Fast inference, generous free tier |
 | Frontend | Next.js | Dashboard UI |
 | Auth | OAuth 2.0 | GitHub + Slack |
 | Infra | AWS EC2 t2.micro + RDS | Using AWS credits |
