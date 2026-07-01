@@ -62,7 +62,7 @@ class StandupGenerator:
                         "content": f"Generate actionable JSON based on this current state:\n{json.dumps(metrics_payload, indent=2)}"
                     }
                 ],
-                model="qwen-3.6-27b",
+                model="llama3-8b-8192",
                 temperature=0.1, 
                 max_tokens=800,
                 response_format={"type": "json_object"} 
