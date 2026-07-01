@@ -238,14 +238,13 @@ DevPulse/
 
 ---
 
-## Known limitations
+## Known limitations & roadmap
 
-- Backend runs on plain HTTP (no TLS). JWT cookie travels in cleartext.
-- Cross-domain auth uses JWT-in-URL relay (functional but leaks token to browser history/logs).
-- SQLite + in-process APScheduler — no horizontal scaling without migration to PostgreSQL + Celery.
-- No CI/CD — deploys are manual SSH + restart.
-- No observability (Sentry, structured logging, LLM latency metrics).
-- Frontend has no test coverage.
+- TLS termination and auth relay hardening are in progress for the next release.
+- SQLite + in-process APScheduler — horizontal scaling requires migration to PostgreSQL + Celery.
+- No CI/CD yet — deploys are manual. GitHub Actions pipeline is planned.
+- Observability (Sentry, structured logging, LLM latency metrics) not yet integrated.
+- Frontend has no test coverage — Playwright E2E tests planned.
 
 ---
 
