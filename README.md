@@ -1,18 +1,22 @@
 # DevPulse
 
-> AI-powered engineering standup and bottleneck intelligence for small teams.
+> AI-driven bottleneck isolation & automated standups for engineering teams.
 
-DevPulse connects to your GitHub repos and automatically surfaces what's slowing your team down — stale PRs, blocked issues, review lag, sprint velocity drops — and generates daily standups from real commit and PR data. Ask it anything in plain English: *"Why was last sprint slow?"*
+DevPulse connects to your GitHub account and automatically surfaces what's slowing you down — stale PRs, merge lag, commit velocity drops — and generates daily standups from real commit and PR data using an LLM. Track your own metrics or add teammates to monitor their pipeline health from a single dashboard.
+
+**Live:** [devpulse-nish.vercel.app](https://devpulse-nish.vercel.app/)
 
 ---
 
 ## What it does
 
-- **Auto-standups** — generates per-engineer standups from real commits and PRs. No more writing them manually.
-- **Bottleneck detection** — flags PRs open > 48h, review lag, blocked issues, deploy frequency drops.
+- **Auto-standups** — generates per-developer standups from real commits and PRs via Groq Llama-3. No more writing them manually.
+- **Bottleneck detection** — flags PRs open > 48h with severity classification (stale / warning / critical).
+- **Commit velocity tracking** — week-over-week commit comparison with trend indicators.
+- **Merge lag analysis** — average hours from PR creation to merge over the last 30 days.
 - **Natural language queries** — ask *"who's been blocked the longest this week?"* and get a real answer from your data.
-- **Team dashboard** — cycle time, PR turnaround, sprint velocity delta. At a glance.
-- **Slack digest** — posts standups and weekly bottleneck reports directly to your channel.
+- **Team tracking** — add any GitHub user to your dashboard and monitor their metrics using your own OAuth token.
+- **Slack digest** — push standup summaries and bottleneck alerts to a Slack channel via webhook.
 
 ---
 
@@ -20,13 +24,13 @@ DevPulse connects to your GitHub repos and automatically surfaces what's slowing
 
 | Layer | Tool | Why |
 |---|---|---|
-| Backend | FastAPI | Fast, async, great DX |
-| Scheduling | APScheduler | Cron-style sync jobs, no broker needed |
-| Database | SQLite → PostgreSQL (RDS) | SQLite locally, Postgres in prod |
-| LLM | Groq API (Qwen 3.6 27B) | Fast inference, generous free tier |
-| Frontend | Next.js | Dashboard UI |
-| Auth | OAuth 2.0 | GitHub + Slack |
-| Infra | AWS EC2 t2.micro + RDS | Using AWS credits |
+| Backend | FastAPI (Python 3.14) | Async, fast, great DX |
+| Scheduling | APScheduler | Hourly sync jobs, no broker needed |
+| Database | SQLite + SQLAlchemy 2.0 | Simple, zero-config, file-based |
+| LLM | Groq API (Llama-3 8B) | Fast inference, generous free tier |
+| Frontend | Next.js 15 (App Router) + Tailwind + shadcn/ui | Server components, edge middleware |
+| Auth | GitHub OAuth 2.0 + JWT (HS256) | httpOnly cookies, Fernet-encrypted tokens at rest |
+| Infra | AWS EC2 (t3.micro) + Vercel | Backend on EC2 with systemd, frontend on Vercel edge CDN |
 | Notifications | Slack Incoming Webhooks | Simple, no Slack SDK needed |
 
 ---
@@ -34,23 +38,22 @@ DevPulse connects to your GitHub repos and automatically surfaces what's slowing
 ## Architecture
 
 ```
-GitHub API
-    │
-    │  OAuth + REST (PRs, commits, issues)
-    ▼
-FastAPI ──────────────────── SQLite / PostgreSQL
-    │                              ▲
-    │                              │
-APScheduler (hourly sync) ─────────┘
-    │
-    ▼
-Bottleneck Engine (pure Python)
-    │  PR lag, cycle time, velocity delta
-    ▼
-Groq API (Llama 3 70B)
-    │  Standup generation + NL query synthesis
-    ├──► Next.js Dashboard
-    └──► Slack Incoming Webhook
+GitHub OAuth ◄──── User Browser ────► Vercel (Next.js)
+     │                                      │
+     ▼                                      │ fetch /standup, /bottlenecks
+GitHub API                                  ▼
+     │                              FastAPI (EC2:8000)
+     │  PRs, Commits                   │         │
+     ▼                                 ▼         ▼
+APScheduler ──► SQLite           BottleneckEngine  QueryEngine
+(hourly sync)    ▲                     │              │
+                 │                     ▼              ▼
+                 │               Groq Llama-3    Groq Llama-3
+                 │                     │
+                 │                     ├──► Dashboard (Next.js)
+                 │                     └──► Slack Webhook
+                 │
+                 └── Fernet-encrypted access tokens
 ```
 
 ---
@@ -62,114 +65,142 @@ Groq API (Llama 3 70B)
 - Python 3.11+
 - Node.js 18+
 - GitHub OAuth App ([create one here](https://github.com/settings/applications/new))
+  - Callback URL: `http://127.0.0.1:8000/auth/callback`
 - Groq API key ([free at console.groq.com](https://console.groq.com))
-- Slack Incoming Webhook URL ([create here](https://api.slack.com/messaging/webhooks))
+- (Optional) Slack Incoming Webhook URL ([create here](https://api.slack.com/messaging/webhooks))
 
 ### 1. Clone and install
 
 ```bash
 git clone https://github.com/nish-debug15/DevPulse.git
-cd devpulse
+cd DevPulse
 
 # Backend
+cd backend
 python -m venv venv
-.\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+source venv/bin/activate        # Linux/Mac
+# .\\venv\\Scripts\\Activate.ps1  # Windows PowerShell
+pip install -r ../requirements.txt
 
 # Frontend
-cd frontend
+cd ../frontend
 npm install
 ```
 
 ### 2. Environment variables
 
-```bash
-cp .env.example .env
-```
-
-Fill in `.env`:
+Create `backend/.env`:
 
 ```env
 GITHUB_CLIENT_ID=your_github_oauth_client_id
 GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
 GROQ_API_KEY=your_groq_api_key
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
-DATABASE_URL=sqlite:///./devpulse.db
-SECRET_KEY=generate_a_random_string_here
+ENCRYPTION_KEY=<generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
+JWT_SECRET=<generate with: python -c "import secrets; print(secrets.token_urlsafe(32))">
+FRONTEND_URL=http://localhost:3000
+ENVIRONMENT=development
+SLACK_WEBHOOK_URL=                # optional
 ```
 
 ### 3. Run locally
 
 ```bash
-# Backend (from root)
-uvicorn backend.main:app --reload --port 8000
+# Backend (from /backend directory)
+uvicorn main:app --reload --port 8000
 
-# Frontend (from /frontend)
+# Frontend (from /frontend directory)
 npm run dev
 ```
 
-Visit `http://localhost:3000` to see the dashboard. The backend API runs at `http://localhost:8000` — you can test the GitHub OAuth flow directly at `http://localhost:8000/auth/login`.
+Visit `http://localhost:3000` for the dashboard. Backend API at `http://localhost:8000`. Test OAuth at `http://localhost:8000/auth/login`.
 
 ---
 
-## Deployment (AWS EC2)
+## Deployment
 
-### EC2 setup
+### Backend — AWS EC2 (t3.micro, Ubuntu)
 
 ```bash
-# SSH into your instance
 ssh -i your-key.pem ubuntu@your-ec2-ip
 
-# Install dependencies
-sudo apt update && sudo apt install -y python3-pip python3-venv nginx git
-
-# Clone repo
+sudo apt update && sudo apt install -y python3-pip python3-venv git
 git clone https://github.com/nish-debug15/DevPulse.git
-cd devpulse
+cd DevPulse/backend
 
-# Setup venv
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r ../requirements.txt
 
-# Set env vars
-nano .env  # paste your variables
-
-# Run (keep alive)
-nohup uvicorn backend.main:app --host 0.0.0.0 --port 8000 &
+nano .env   # paste your environment variables (set ENVIRONMENT=production)
 ```
 
-### Point GitHub OAuth to your EC2 IP
+Managed via systemd for auto-restart:
 
-Update your GitHub OAuth App's callback URL:
-```
-http://your-ec2-ip:8000/auth/callback
+```bash
+sudo cat > /etc/systemd/system/devpulse.service << 'EOF'
+[Unit]
+Description=DevPulse FastAPI Backend
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/DevPulse/backend
+Environment="PATH=/home/ubuntu/DevPulse/backend/venv/bin:/usr/bin"
+EnvironmentFile=/home/ubuntu/DevPulse/backend/.env
+ExecStart=/home/ubuntu/DevPulse/backend/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable devpulse
+sudo systemctl start devpulse
 ```
 
-### (Optional) RDS Postgres
+Update your GitHub OAuth App callback URL to: `http://your-ec2-ip:8000/auth/callback`
 
-Free tier: `db.t3.micro`, 20GB. Update `DATABASE_URL` in `.env`:
-```
-DATABASE_URL=postgresql://user:password@your-rds-endpoint:5432/devpulse
-```
+### Frontend — Vercel
+
+1. Import the repo in [Vercel](https://vercel.com).
+2. Set root directory to `frontend`.
+3. Add environment variable: `NEXT_PUBLIC_BACKEND_URL = http://your-ec2-ip:8000`
+4. Deploy. Vercel auto-deploys on every push to `main`.
 
 ---
 
 ## Project structure
 
 ```
-devpulse/
+DevPulse/
 ├── backend/
-│   ├── main.py              # FastAPI app entry
-│   ├── auth/                # GitHub OAuth flow
-│   ├── github/              # GitHub API client
-│   ├── scheduler/           # APScheduler sync jobs
-│   ├── engine/              # Bottleneck detection logic
-│   ├── llm/                 # Groq API integration
-│   ├── slack/               # Slack webhook sender
-│   └── db/                  # SQLite/Postgres models
-├── frontend/                # Next.js dashboard
-├── .env.example
+│   ├── main.py                       # FastAPI app, routes, scheduler setup
+│   ├── auth/
+│   │   ├── github_oauth.py           # OAuth login/callback + cross-domain token relay
+│   │   ├── jwt_handler.py            # JWT creation and verification (HS256)
+│   │   └── dependencies.py           # get_authenticated_user dependency
+│   ├── db/
+│   │   ├── database.py               # SQLAlchemy engine + session factory
+│   │   └── models.py                 # User, TrackedDeveloper, PullRequest, Commit
+│   ├── services/
+│   │   ├── engine.py                 # BottleneckEngine (stale PRs, velocity, merge lag)
+│   │   ├── ai_synthesis.py           # StandupGenerator (Groq Llama-3 + Pydantic validation)
+│   │   ├── github_fetcher.py         # Async GitHub API client (pagination, rate-limit, backoff)
+│   │   ├── query_engine.py           # Natural language query → LLM → answer
+│   │   └── slack_notifier.py         # Slack webhook sender
+│   └── tests/                        # 22-test pytest suite
+├── frontend/
+│   ├── app/
+│   │   ├── page.tsx                  # Landing page (GitHub sign-in)
+│   │   └── dashboard/[username]/
+│   │       └── page.tsx              # Dashboard (metrics + AI standup)
+│   ├── components/
+│   │   ├── bottleneck-register.tsx   # Accordion PR blockage viewer
+│   │   └── team-sidebar.tsx          # Team member management sidebar
+│   └── middleware.ts                 # Token interception + auth guard
 ├── requirements.txt
 └── README.md
 ```
@@ -178,24 +209,43 @@ devpulse/
 
 ## API endpoints
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/auth/login` | Initiate GitHub OAuth |
-| `GET` | `/auth/callback` | OAuth callback |
-| `GET` | `/team/summary` | Team bottleneck summary |
-| `GET` | `/team/standups` | Today's auto-generated standups |
-| `GET` | `/pr/bottlenecks` | PRs flagged as blocked |
-| `POST` | `/query` | Natural language query → LLM answer |
-| `POST` | `/slack/send` | Push digest to Slack |
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/` | No | Health check |
+| `GET` | `/auth/login` | No | Initiate GitHub OAuth |
+| `GET` | `/auth/callback` | No | OAuth callback, creates session |
+| `GET` | `/auth/me` | Yes | Current authenticated user |
+| `POST` | `/auth/logout` | No | Clear session cookie |
+| `POST` | `/users/{username}/sync` | Yes | Trigger background GitHub data sync |
+| `GET` | `/users/{username}/standup` | Yes | AI-generated standup report (10/min) |
+| `GET` | `/pr/bottlenecks` | Yes | PR bottleneck data with severity (30/min) |
+| `POST` | `/slack/send` | Yes | Push standup or bottleneck alert to Slack (10/min) |
+| `POST` | `/query` | Yes | Natural language query against metrics (10/min) |
+| `POST` | `/team/add` | Yes | Add a GitHub user to tracked team |
+| `GET` | `/team` | Yes | List tracked developers |
+| `DELETE` | `/team/{username}` | Yes | Remove tracked developer |
+| `POST` | `/team/{username}/sync` | Yes | Sync a specific tracked developer |
 
 ---
 
-## Contributing
+## Security
 
-Built solo as a learning project. PRs welcome for:
-- Additional data sources (Linear, Jira)
-- Smarter bottleneck heuristics
-- Multi-team / org support
+- **Token encryption at rest** — GitHub access tokens encrypted with Fernet (AES-128-CBC) before storage.
+- **httpOnly cookies** — JWT session token stored in httpOnly cookie, inaccessible to client-side JS.
+- **No hardcoded secrets** — all secrets loaded from `.env`, server crashes on startup if any are missing.
+- **Rate limiting** — SlowAPI on all LLM and notification endpoints.
+- **22 backend tests** — pytest suite covering auth, sync, and engine logic.
+
+---
+
+## Known limitations
+
+- Backend runs on plain HTTP (no TLS). JWT cookie travels in cleartext.
+- Cross-domain auth uses JWT-in-URL relay (functional but leaks token to browser history/logs).
+- SQLite + in-process APScheduler — no horizontal scaling without migration to PostgreSQL + Celery.
+- No CI/CD — deploys are manual SSH + restart.
+- No observability (Sentry, structured logging, LLM latency metrics).
+- Frontend has no test coverage.
 
 ---
 
