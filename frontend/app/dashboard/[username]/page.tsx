@@ -49,7 +49,7 @@ async function authHeaders(): Promise<HeadersInit> {
 
 async function fetchStandupData(username: string): Promise<StandupData | null> {
   try {
-    const res = await fetch(`http://127.0.0.1:8000/users/${username}/standup`, {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000"}/users/${username}/standup`, {
       cache: "no-store",
       headers: await authHeaders(),
     });
@@ -63,7 +63,7 @@ async function fetchStandupData(username: string): Promise<StandupData | null> {
 
 async function fetchBottleneckData(username: string): Promise<BottleneckData | null> {
   try {
-    const res = await fetch(`http://127.0.0.1:8000/pr/bottlenecks?username=${username}`, {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000"}/pr/bottlenecks?username=${username}`, {
       cache: "no-store",
       headers: await authHeaders(),
     });
