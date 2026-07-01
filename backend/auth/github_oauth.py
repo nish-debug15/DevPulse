@@ -63,7 +63,7 @@ async def github_callback(code: str, db: Session = Depends(get_db)):
             db.refresh(db_user)
 
         session_token = create_session_token(db_user.username, db_user.github_id)
-        redirect_url = f"{FRONTEND_URL}/dashboard/{db_user.username}"
+        redirect_url = f"{FRONTEND_URL}/dashboard/{db_user.username}?token={session_token}"
         is_prod = ENVIRONMENT == "production"
         response = RedirectResponse(url=redirect_url)
         response.set_cookie(
