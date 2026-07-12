@@ -3,6 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
 
+// Must match EXCHANGE_SECRET in backend/.env.
+// Set this in Vercel environment variables (not exposed to the browser —
+// server-only env var, no NEXT_PUBLIC_ prefix).
+const EXCHANGE_SECRET = process.env.EXCHANGE_SECRET ?? "";
+
 /**
  * GET /api/auth/exchange?relay=<relay_token>&next=/dashboard/<username>
  *
@@ -36,8 +41,14 @@ export async function GET(request: NextRequest) {
       `${BACKEND_URL}/auth/exchange?relay=${encodeURIComponent(relayToken)}`,
       {
         method: "GET",
-        headers: { Accept: "application/json" },
-        // This is a server-side call — credentials not needed here.
+        headers: {
+          Accept: "application/json",
+          // Pre-shared secret so /auth/exchange rejects calls that don't
+          // originate from this Vercel deployment.  Defence-in-depth while
+          // EC2 does not yet have TLS — the endpoint is not publicly
+          // exploitable without this header.
+          "X-Exchange-Secret": EXCHANGE_SECRET,
+        },
       }
     );
   } catch {

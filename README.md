@@ -97,10 +97,13 @@ GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
 GROQ_API_KEY=your_groq_api_key
 ENCRYPTION_KEY=<generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
 JWT_SECRET=<generate with: python -c "import secrets; print(secrets.token_urlsafe(32))">
+EXCHANGE_SECRET=<generate with: python -c "import secrets; print(secrets.token_urlsafe(32))">  # must match Vercel env var
 FRONTEND_URL=http://localhost:3000
 ENVIRONMENT=development
 SLACK_WEBHOOK_URL=                # optional
 ```
+
+Add the same `EXCHANGE_SECRET` value to your Vercel project environment variables (without the `NEXT_PUBLIC_` prefix — it is server-only).
 
 ### 3. Run locally
 

@@ -1,4 +1,5 @@
 import os
+import uuid
 import jwt
 from datetime import datetime, timedelta, timezone
 
@@ -39,6 +40,7 @@ def create_relay_token(username: str, github_id: int) -> str:
         "sub": username,
         "gid": github_id,
         "type": "relay",
+        "jti": str(uuid.uuid4()),  # unique nonce — enforces single-use in /auth/exchange
         "exp": datetime.now(timezone.utc) + timedelta(seconds=RELAY_TOKEN_EXPIRY_SECONDS),
         "iat": datetime.now(timezone.utc),
     }
