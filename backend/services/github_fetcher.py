@@ -26,12 +26,10 @@ async def _wait_for_rate_limit_reset(response: httpx.Response) -> None:
     reset_timestamp = response.headers.get("X-RateLimit-Reset")
     if reset_timestamp:
         wait_seconds = max(int(reset_timestamp) - int(time.time()), 1) + 1
-        # Cap the wait to 15 minutes to avoid infinite hangs
         wait_seconds = min(wait_seconds, 900)
         logger.warning(f"Rate limit hit. Sleeping for {wait_seconds}s until reset.")
         await asyncio.sleep(wait_seconds)
     else:
-        # Fallback: if no reset header, wait 60s
         logger.warning("Rate limit hit but no reset header found. Sleeping 60s.")
         await asyncio.sleep(60)
 
@@ -53,18 +51,15 @@ async def fetch_with_retry(client: httpx.AsyncClient, url: str) -> list:
         while retries <= MAX_RETRIES:
             response = await client.get(current_url)
 
-            # --- Rate Limit Handling (403 or 429) ---
             if response.status_code in (403, 429):
                 remaining = int(response.headers.get("X-RateLimit-Remaining", 1))
                 if remaining == 0 or response.status_code == 429:
                     await _wait_for_rate_limit_reset(response)
                     retries += 1
                     continue
-                # 403 for non-rate-limit reasons (e.g. repo access denied)
                 logger.error(f"GitHub 403 (not rate limit): {response.text[:200]}")
                 return results
 
-            # --- Transient Server Errors (5xx) ---
             if response.status_code >= 500:
                 retries += 1
                 wait = BACKOFF_BASE_SECONDS ** retries
@@ -74,19 +69,15 @@ async def fetch_with_retry(client: httpx.AsyncClient, url: str) -> list:
                 await asyncio.sleep(wait)
                 continue
 
-            # --- Other Client Errors (4xx) ---
             if response.status_code != 200:
                 logger.error(f"GitHub API Error {response.status_code}: {response.text[:200]}")
                 return results
 
-            # --- Success ---
             break
         else:
-            # Exhausted all retries
             logger.error(f"Exhausted {MAX_RETRIES} retries for {current_url}. Skipping.")
             return results
 
-        # Log low rate-limit headroom as a warning
         remaining = int(response.headers.get("X-RateLimit-Remaining", 100))
         if remaining < 50:
             logger.warning(f"Rate limit headroom low: {remaining} requests remaining.")

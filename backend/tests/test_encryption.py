@@ -45,7 +45,6 @@ class TestEncryptedTokenStorage:
         db_session.add(user)
         db_session.commit()
 
-        # Bypass SQLAlchemy ORM — read the raw column value with a text query.
         result = db_session.execute(
             text("SELECT access_token FROM users WHERE username = 'raw_check'")
         )
@@ -55,7 +54,6 @@ class TestEncryptedTokenStorage:
         assert raw_value != plaintext, (
             "SECURITY FAILURE: Token is stored in PLAINTEXT in the database!"
         )
-        # Fernet tokens start with 'gAAAAA' (base64 encoded)
         assert raw_value.startswith("gAAAAA"), (
             f"Raw value doesn't look like Fernet ciphertext: {raw_value[:20]}..."
         )
